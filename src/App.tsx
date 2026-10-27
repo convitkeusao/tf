@@ -1,32 +1,47 @@
-import React, { lazy, Suspense, useEffect, useState } from 'react';
-import { Provider } from 'react-redux';
-import { store } from './app/store';
-import { BooksPage } from './pages/BooksPage';
-import { ThemeProvider } from './context/ThemeContext';
-
-const StatsPage = lazy(() => import('./features/stats/StatsPage'));
+import React, { useEffect, useState } from 'react';
+import { supabaseConfigured } from './api/supabaseClient';
+import { AppUser, getCurrentUser, signOut } from './api/supabaseAuth';
+import { SupabaseAuth } from './components/SupabaseAuth';
+import { TasksPage } from './pages/TasksPage';
 
 function App() {
-  const [path, setPath] = useState(window.location.pathname);
-  useEffect(() => {
-    const updatePath = () => setPath(window.location.pathname);
-    window.addEventListener('popstate', updatePath);
-    return () => window.removeEventListener('popstate', updatePath);
-  }, []);
-  const stats = path.replace(/\/+$/, '') === '/stats';
+  const [user, setUser] = useState<AppUser | null>(null);
+  const [authStatus, setAuthStatus] = useState<'loading' | 'ready'>(
+    supabaseConfigured ? 'loading' : 'ready',
+  );
+  const [authError, setAuthError] = useState('');
 
+  useEffect(() => {
+    if (!supabaseConfigured) return;
+    getCurrentUser()
+      .then(setUser)
+      .catch((caught: unknown) => {
+        setAuthError(caught instanceof Error ? caught.message : 'Không thể kiểm tra phiên đăng nhập.');
+      })
+      .finally(() => setAuthStatus('ready'));
+  }, []);
+
+  async function handleSignOut() {
+    try {
+      await signOut();
+      setUser(null);
+    } catch (caught) {
+      setAuthError(caught instanceof Error ? caught.message : 'Không thể đăng xuất.');
+    }
+  }
+
+  if (authStatus === 'loading') {
+    return <main className="auth-page"><p role="status">Đang kiểm tra phiên đăng nhập...</p></main>;
+  }
+  if (authError) {
+    return <main className="auth-page"><p className="form-error" role="alert">{authError}</p><button className="secondary-button" onClick={() => window.location.reload()}>Thử lại</button></main>;
+  }
+  if (supabaseConfigured && !user) return <SupabaseAuth onSignedIn={setUser} />;
   return (
-    <Provider store={store}>
-      <ThemeProvider>
-        {stats ? (
-          <Suspense fallback={<p role="status">Đang tải...</p>}>
-            <StatsPage />
-          </Suspense>
-        ) : (
-          <BooksPage />
-        )}
-      </ThemeProvider>
-    </Provider>
+    <TasksPage
+      user={user}
+      onSignOut={supabaseConfigured ? handleSignOut : undefined}
+    />
   );
 }
 
